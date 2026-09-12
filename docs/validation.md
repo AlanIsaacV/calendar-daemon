@@ -10,7 +10,7 @@ list has been run yet.
 ## Part 1 — Checks that run anywhere
 
 ```sh
-cargo test                    # 182 tests
+cargo test                    # 187 tests
 cargo clippy --all-targets    # no warnings
 cargo fmt --check
 ```

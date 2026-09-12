@@ -138,7 +138,7 @@ fn cmd_paths(paths: &Paths) -> anyhow::Result<()> {
 }
 
 async fn cmd_run(config: Config, paths: Paths) -> anyhow::Result<()> {
-    paths.ensure().context("creating the state directory")?;
+    paths.ensure()?;
     let lock = DaemonLock::acquire(&paths.lock_file())
         .context("another calendar-daemon is already running")?;
     tracing::debug!(lock = %lock.path().display(), "state directory claimed");

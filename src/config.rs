@@ -283,6 +283,20 @@ impl Config {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum PathsError {
+    #[error("creating the state directory {path}")]
+    StateDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("creating the runtime directory {path}")]
+    RuntimeDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
 /// Where the daemon reads and writes, resolved once at startup.
 #[derive(Debug, Clone)]
 pub struct Paths {
@@ -350,9 +364,15 @@ impl Paths {
     }
 
     /// Create the directories the daemon writes into, owner-only.
-    pub fn ensure(&self) -> std::io::Result<()> {
-        util::ensure_private_dir(&self.state_dir)?;
-        util::ensure_private_dir(&self.runtime_dir)?;
+    pub fn ensure(&self) -> Result<(), PathsError> {
+        util::ensure_private_dir(&self.state_dir).map_err(|source| PathsError::StateDir {
+            path: self.state_dir.clone(),
+            source,
+        })?;
+        util::ensure_private_dir(&self.runtime_dir).map_err(|source| PathsError::RuntimeDir {
+            path: self.runtime_dir.clone(),
+            source,
+        })?;
         Ok(())
     }
 }
@@ -539,6 +559,46 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let config = Config::load(&path).unwrap();
         assert_eq!(config.sync.interval, Duration::from_secs(21_600));
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_created_is_named_along_with_its_path() {
+        let base = std::env::temp_dir().join(format!(
+            "calendar-daemon-ensure-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        util::ensure_private_dir(&base).unwrap();
+        let blocker = base.join("a-file-not-a-directory");
+        std::fs::write(&blocker, b"").unwrap();
+
+        let paths = Paths {
+            config_file: base.join("config.toml"),
+            state_dir: base.join("state"),
+            runtime_dir: blocker.join("runtime"),
+            export_dir: base.join("export"),
+        };
+        let err = paths.ensure().unwrap_err().to_string();
+        assert!(err.contains("runtime directory"), "misnamed: {err}");
+        assert!(
+            err.contains(&paths.runtime_dir.display().to_string()),
+            "no path in: {err}"
+        );
+        assert!(!err.contains("state directory"), "misnamed: {err}");
+
+        let paths = Paths {
+            state_dir: blocker.join("state"),
+            runtime_dir: base.join("runtime"),
+            ..paths
+        };
+        let err = paths.ensure().unwrap_err().to_string();
+        assert!(err.contains("state directory"), "misnamed: {err}");
+        assert!(
+            err.contains(&paths.state_dir.display().to_string()),
+            "no path in: {err}"
+        );
+        assert!(!err.contains("runtime directory"), "misnamed: {err}");
     }
 
     #[test]

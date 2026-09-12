@@ -110,6 +110,14 @@ if the keyring is still locked when the daemon starts, it starts anyway, reports
 `keyring unavailable`, and succeeds on the first operation after you unlock —
 with no new consent, because the authorization was never in question.
 
+The unit runs sandboxed: `ProtectSystem=strict` and `ProtectHome=read-only`
+leave the filesystem read-only apart from the two `ReadWritePaths=` entries.
+`ProtectHome=read-only` covers `/run/user` as well as `/home`, so the daemon
+cannot create its own runtime directory from inside the sandbox.
+`RuntimeDirectory=calendar-daemon` has systemd create it at mode `0700` before
+the daemon starts — exempt from both protections — and remove it again when the
+service stops.
+
 Only one process may own the state directory. A second `calendar-daemon run`
 fails immediately rather than producing two schedulers that both notify for the
 same meeting.
@@ -195,3 +203,22 @@ export CALENDAR_DAEMON_RUNTIME_DIR=/tmp/try/run
 The runtime directory holds the control socket, which the kernel limits to about
 100 bytes of path. A directory nested too deep is reported by name with that
 limit, not as an unexplained bind failure.
+
+These overrides are meant for a shell, not for the packaged unit. The daemon
+resolves its runtime directory itself — `CALENDAR_DAEMON_RUNTIME_DIR`, else
+`$XDG_RUNTIME_DIR/calendar-daemon` — and never reads what systemd exports about
+the directory it provisioned; under the unit the two agree only because
+`RuntimeDirectory=calendar-daemon` names the same path. Setting
+`CALENDAR_DAEMON_RUNTIME_DIR` there points the daemon at a directory systemd has
+not created, and what follows depends on the path. One the sandbox leaves
+read-only — most of the filesystem, under `ProtectSystem=strict` and
+`ProtectHome=read-only` — fails at startup, and says so in the journal. One
+under `/tmp` does not fail: `PrivateTmp=true` alongside `ProtectSystem=strict`
+leaves `/tmp` and `/var/tmp` writable (systemd.exec(5), under `ProtectSystem=`),
+so `/tmp/try/run` above would start cleanly and bind the control socket inside
+the unit's private `/tmp`, which nothing outside the unit can reach. The service
+then looks healthy while every `calendar-daemon sync` and `status` from a shell
+quietly takes the not-running branch — the worse of the two outcomes, because
+nothing announces it. Override it in the unit only alongside a
+`RuntimeDirectory=` naming the same directory — or, for a path outside
+`$XDG_RUNTIME_DIR`, a `ReadWritePaths=` entry for it.

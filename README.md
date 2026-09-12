@@ -128,7 +128,7 @@ not to promise it will not happen.
 ## Development
 
 ```sh
-cargo test              # 182 tests: no network, no keyring, no graphical session
+cargo test              # 187 tests: no network, no keyring, no graphical session
 cargo clippy --all-targets
 cargo fmt --check
 ```
