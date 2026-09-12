@@ -1,0 +1,25 @@
+# Build output
+/target/
+
+# Planning workspace, not part of the published project
+/.ai-kit/
+
+# Anything that would carry account data, credentials or a real calendar out of
+# this machine. The daemon keeps its own state outside the repository; these
+# entries exist so a stray copy cannot be committed by accident.
+/.env
+/.env.*
+!/.env.example
+/runtime/
+/local-config/
+/config.toml
+/credentials.json
+/client_secret*.json
+/token.json
+/tokens.json
+*.ics
+!examples/**/*.ics
+
+# Output of `cargo run --example sample_export` and the libical validator
+/sample/
+/validate-ics

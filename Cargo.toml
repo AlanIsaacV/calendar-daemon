@@ -1,0 +1,37 @@
+[package]
+name = "calendar-daemon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+chrono-tz = "0.10.4"
+clap = { version = "4.6.6", features = ["derive"] }
+keyring-core = "1"
+libc = "0.2.189"
+notify-rust = "4.18.0"
+rand = "0.10.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "gzip", "http2", "charset", "form", "query"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+thiserror = "2.0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync", "io-util", "fs", "process"] }
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+# The async-io runtime, not the tokio one. Cargo features are additive, so
+# enabling `rt-tokio-*` here would switch zbus to its tokio backend, whose
+# blocking API builds a second tokio runtime and panics when the keyring is
+# touched from inside ours. Keep this list to exactly one runtime.
+zbus-secret-service-keyring-store = { version = "1", default-features = false, features = ["rt-async-io-crypto-rust"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# Deliberately not `panic = "abort"`: a panic in the detached thread that waits
+# for a notification action should lose that one action, not the daemon.

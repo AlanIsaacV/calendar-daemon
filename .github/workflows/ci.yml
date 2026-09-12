@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The keyring and notification crates need D-Bus headers to build. No
+      # session bus is started: every test runs without one, which is also how
+      # the daemon has to behave when a keyring is unavailable.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features
+
+      - name: Test
+        run: cargo test --all-features
+
+  ics-conformance:
+    name: Exported calendars parse as iCalendar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Parse the export with libical rather than only with this project's own
+      # serializer, since that is the library calendar clients generally use.
+      - name: Install libical
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libical-dev pkg-config libdbus-1-dev
+
+      - name: Build the validator
+        run: cc -o validate-ics tools/validate-ics.c $(pkg-config --cflags --libs libical)
+
+      - name: Write a sample export
+        run: cargo run --example sample_export -- sample
+
+      - name: Validate every exported calendar
+        run: |
+          set -euo pipefail
+          for ics in sample/*/calendar.ics; do
+            echo "== $ics"
+            ./validate-ics "$ics"
+          done
+
+      - name: An emptied calendar must still parse
+        run: |
+          set -euo pipefail
+          printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//calendar-daemon//calendar-daemon//EN\r\nX-WR-CALNAME:Empty\r\nEND:VCALENDAR\r\n' > empty.ics
+          output=$(./validate-ics empty.ics)
+          echo "$output"
+          echo "$output" | grep -q 'events: 0'
+          echo "$output" | grep -q 'unparseable lines: 0'

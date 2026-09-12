@@ -1,0 +1,52 @@
+# A systemd user service. Install with:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp packaging/calendar-daemon.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now calendar-daemon.service
+#
+# Remove it with the rollback steps in docs/install.md.
+
+[Unit]
+Description=Local calendar synchronization, reminders and vdir export
+Documentation=https://github.com/OWNER/calendar-daemon
+
+# The keyring and the notification server both live on the session bus. The
+# daemon starts without them and reports the condition through `status`, but
+# ordering after the bus avoids a pointless first failure.
+After=graphical-session.target dbus.socket
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/calendar-daemon run
+Restart=on-failure
+RestartSec=30s
+
+# The daemon holds an exclusive lock on its state directory, so a restart that
+# overlaps the old process fails fast rather than running two schedulers.
+TimeoutStopSec=15s
+
+# It needs the network, the session bus, its own state and config, and the
+# export directory. Nothing else.
+#
+# The `-` prefix keeps a path that does not exist yet from failing the unit.
+# Add the export directory here too if `export.directory` points elsewhere.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=-%h/.local/state/calendar-daemon
+ReadWritePaths=-%h/.local/share/calendar-daemon
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+NoNewPrivileges=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=graphical-session.target

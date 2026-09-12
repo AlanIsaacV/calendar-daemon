@@ -1,0 +1,94 @@
+# calendar-daemon configuration.
+#
+# Copy to $XDG_CONFIG_HOME/calendar-daemon/config.toml (usually
+# ~/.config/calendar-daemon/config.toml) and edit. Every value below is the
+# built-in default unless the comment says otherwise, so an empty file is valid
+# once [auth] is filled in.
+#
+# Check it with:  calendar-daemon check
+
+[auth]
+# From a Desktop OAuth client in Google Cloud, with the Calendar API enabled.
+# Google treats installed applications as public clients, so this pair is not a
+# secret in the cryptographic sense — but it is still installation data and does
+# not belong in a repository.
+client_id = ""
+client_secret = ""
+
+# Label the refresh token is filed under in the keyring. Change it to run two
+# accounts side by side.
+account = "default"
+
+# Renew an access token this many seconds before its stated expiry.
+refresh_skew_secs = 120
+
+# How long the browser step may take before the temporary callback listener
+# gives up and closes.
+consent_timeout = "5m"
+
+[sync]
+# Synchronize once when the daemon starts.
+on_start = true
+
+# Synchronize again on the interval below. Set false for start-and-manual only.
+periodic = true
+
+# Provisional starting value. Meetings usually arrive at least a day ahead, so
+# a long interval is cheap; a longer one means edits and cancellations take
+# longer to appear. `calendar-daemon sync` always updates immediately.
+interval = "6h"
+
+# The window fetched and exported, relative to now.
+window_past = "7d"
+window_future = "60d"
+
+# Ignore events this account has declined.
+skip_declined = true
+
+# Calendar ids to synchronize. Empty means every calendar ticked in Google.
+calendars = []
+
+# Upper bound per calendar per cycle, so one runaway calendar cannot grow the
+# daemon without limit.
+max_events_per_calendar = 2000
+
+# Backoff after a failed cycle, doubling up to retry_max.
+retry_base = "1m"
+retry_max = "30m"
+
+[reminders]
+enabled = true
+
+# How late a reminder may be and still be shown. Reminders that came due while
+# the machine was suspended are delivered only inside this window; older ones
+# are recorded as handled without notifying, so resuming after a weekend does
+# not empty a backlog onto the screen.
+catch_up_window = "15m"
+
+# Hard cap on how many late reminders one catch-up may show.
+max_catch_up = 5
+
+# Longest the scheduler sleeps before re-reading the wall clock. The sleep timer
+# does not advance while the machine is suspended, so this is what bounds how
+# late a reminder can be after a resume. It is a local timer, not a request to
+# Google.
+max_sleep = "2m"
+
+[export]
+enabled = true
+
+# Where the vdir tree is written. Defaults to <state dir>/calendars.
+# directory = "~/.local/share/calendar-daemon/calendars"
+
+# Write a `color` metadata file from each calendar's Google colour.
+write_color = true
+
+[notifications]
+enabled = true
+
+# Program used to open a meeting link. Arguments are passed directly; no shell
+# is involved, so nothing in an event's text can become a command.
+open_command = ["xdg-open"]
+
+# Seconds a reminder stays on screen. 0 leaves it to the notification server.
+timeout_secs = 0
