@@ -16,7 +16,9 @@ use calendar_daemon::auth::{AuthFailure, AuthHealth, GoogleTokenEndpoint, TokenM
 use calendar_daemon::config::{Config, Paths};
 use calendar_daemon::control::{self, ControlError, Request, Response};
 use calendar_daemon::daemon::{self, Daemon};
-use calendar_daemon::google::client::{GoogleCalendarClient, build_http_client};
+use calendar_daemon::google::client::{
+    GoogleCalendarClient, PAGE_SIZE, REQUEST_TIMEOUT, build_http_client,
+};
 use calendar_daemon::notify::DesktopNotifier;
 use calendar_daemon::store::{DaemonLock, Snapshot, Store};
 use calendar_daemon::util;
@@ -176,6 +178,7 @@ async fn cmd_run(config: Config, paths: Paths) -> anyhow::Result<()> {
         paths: paths.clone(),
         provider,
         notifier,
+        tokens,
         auth_health: Arc::new(tokio::sync::Mutex::new(health)),
     };
 
@@ -319,9 +322,16 @@ async fn cmd_status(config: Config, paths: Paths, json: bool) -> anyhow::Result<
         );
     }
 
+    let awaiting_reauthorization = matches!(
+        record.auth,
+        Some(AuthHealth::ReauthorizationRequired { .. })
+    );
     match record.next_sync {
         Some(at) if running => println!("next sync     {}", at.format("%Y-%m-%d %H:%M:%SZ")),
         Some(_) | None if !running => println!("next sync     — (daemon not running)"),
+        None if awaiting_reauthorization => {
+            println!("next sync     — (sync paused until reauthorization)")
+        }
         _ => println!("next sync     — (periodic sync is off)"),
     }
 
@@ -447,8 +457,86 @@ async fn cmd_auth(config: Config, paths: Paths, forget: bool) -> anyhow::Result<
         .map_err(|err| anyhow!("{err}\n{}", err.remedy()))?;
 
     println!("Authorized. The refresh token is stored in the session keyring.");
-    println!("Run `calendar-daemon sync` to fetch your calendars.");
+
+    let deadline = daemon_sync_deadline(&config, Store::from_paths(&paths).load_status().calendars);
+    let answer = tokio::time::timeout(
+        deadline,
+        control::request(&paths.control_socket(), &Request::Sync),
+    )
+    .await;
+    match answer {
+        Err(_) => {
+            println!(
+                "The authorization is stored, but the running daemon did not answer within {}.",
+                util::format_duration(deadline)
+            );
+            print_restart_hint();
+        }
+        Ok(Ok(Response::Synced {
+            calendars,
+            events,
+            partial,
+            ..
+        })) => {
+            println!(
+                "The running daemon picked up the new authorization: synced {calendars} \
+                 calendar(s), {events} event(s){}.",
+                partial_note(partial)
+            );
+        }
+        Ok(Ok(Response::SyncFailed { category, message })) => {
+            println!("The running daemon could not sync with it ({category}): {message}");
+            print_restart_hint();
+        }
+        Ok(Ok(Response::Error { message })) => {
+            println!("The running daemon refused the sync request: {message}");
+            print_restart_hint();
+        }
+        Ok(Ok(other)) => {
+            println!("The running daemon sent an unexpected answer: {other:?}");
+            print_restart_hint();
+        }
+        Ok(Err(ControlError::NotRunning { .. })) => {
+            println!("Run `calendar-daemon sync` to fetch your calendars.");
+        }
+        Ok(Err(err @ ControlError::PathTooLong { .. })) => {
+            tracing::warn!("{err}");
+            println!("Run `calendar-daemon sync` to fetch your calendars.");
+        }
+        Ok(Err(err)) => {
+            println!("The running daemon could not be asked to sync: {err}");
+            print_restart_hint();
+        }
+    }
     Ok(())
+}
+
+fn daemon_sync_deadline(config: &Config, last_known_calendars: usize) -> std::time::Duration {
+    let calendars = if config.sync.calendars.is_empty() {
+        last_known_calendars
+    } else {
+        config.sync.calendars.len()
+    };
+    let pages_per_calendar = config.sync.max_events_per_calendar.div_ceil(PAGE_SIZE);
+    let calendar_list_requests: usize = 1;
+    let token_refreshes: usize = 1;
+    let one_retry_after_a_401: usize = 2;
+    let requests = (calendar_list_requests + token_refreshes + one_retry_after_a_401)
+        .saturating_add(calendars.saturating_mul(pages_per_calendar));
+    REQUEST_TIMEOUT.saturating_mul(u32::try_from(requests).unwrap_or(u32::MAX))
+}
+
+fn partial_note(partial: bool) -> &'static str {
+    if partial {
+        " (partial: some calendars kept their previous events)"
+    } else {
+        ""
+    }
+}
+
+fn print_restart_hint() {
+    println!("Restart the service so it picks up the new authorization:");
+    println!("  systemctl --user restart calendar-daemon.service");
 }
 
 /// Build the token manager over the desktop keyring.

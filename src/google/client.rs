@@ -30,7 +30,9 @@ reminders,attendees(self,responseStatus),hangoutLink,\
 conferenceData(entryPoints(entryPointType,uri)),htmlLink,updated)";
 
 /// Provider page size. The API caps this at 2500.
-const PAGE_SIZE: usize = 250;
+pub const PAGE_SIZE: usize = 250;
+
+pub const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub struct GoogleCalendarClient<S: SecretStore, E: TokenEndpoint> {
     http: reqwest::Client,
@@ -235,7 +237,7 @@ fn urlencoding_path(segment: &str) -> String {
 pub fn build_http_client() -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(concat!("calendar-daemon/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(REQUEST_TIMEOUT)
         .connect_timeout(std::time::Duration::from_secs(10))
         .pool_idle_timeout(std::time::Duration::from_secs(90))
         .build()

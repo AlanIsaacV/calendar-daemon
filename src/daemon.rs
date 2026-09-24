@@ -13,6 +13,7 @@ use std::time::Duration as StdDuration;
 use chrono::{DateTime, Duration, Utc};
 use chrono_tz::Tz;
 
+use crate::auth::{AuthFailure, SecretStore, TokenEndpoint, TokenManager};
 use crate::config::Config;
 use crate::control::{self, Request, Response};
 use crate::export;
@@ -240,17 +241,30 @@ fn to_chrono(duration: StdDuration) -> Duration {
 const COALESCE_WINDOW: Duration = Duration::milliseconds(3_000);
 
 /// Everything the running process needs.
-pub struct Daemon<P: CalendarProvider + ?Sized, N: Notifier + ?Sized> {
+pub struct Daemon<P, N, S, E>
+where
+    P: CalendarProvider + ?Sized,
+    N: Notifier + ?Sized,
+    S: SecretStore,
+    E: TokenEndpoint,
+{
     pub config: Config,
     pub paths: crate::config::Paths,
     pub store: Store,
     pub provider: Arc<P>,
     pub notifier: Arc<N>,
+    pub tokens: Arc<TokenManager<S, E>>,
     /// Reported in `status` without the daemon making a network request.
     pub auth_health: Arc<tokio::sync::Mutex<crate::auth::AuthHealth>>,
 }
 
-impl<P: CalendarProvider + ?Sized, N: Notifier + ?Sized> Daemon<P, N> {
+impl<P, N, S, E> Daemon<P, N, S, E>
+where
+    P: CalendarProvider + ?Sized,
+    N: Notifier + ?Sized,
+    S: SecretStore,
+    E: TokenEndpoint,
+{
     /// Run until asked to stop.
     ///
     /// Waits on whichever comes first: a control request, the next reminder
@@ -363,6 +377,12 @@ impl<P: CalendarProvider + ?Sized, N: Notifier + ?Sized> Daemon<P, N> {
                                         .await;
                                         continue;
                                     }
+                                    if self.tokens.clear_grant_rejection().await {
+                                        tracing::info!(
+                                            "sync requested after a rejected grant; \
+                                             retrying with the stored authorization"
+                                        );
+                                    }
                                     match self.sync_once(&mut status, now).await {
                                         Ok(outcome) => {
                                             backoff = None;
@@ -379,10 +399,36 @@ impl<P: CalendarProvider + ?Sized, N: Notifier + ?Sized> Daemon<P, N> {
                                                 partial: outcome.partial,
                                             }
                                         }
-                                        Err(err) => Response::SyncFailed {
-                                            category: err.category().to_string(),
-                                            message: err.to_string(),
-                                        },
+                                        Err(err) => {
+                                            if err.auth_failure().is_none() {
+                                                let health = self
+                                                    .tokens
+                                                    .health(self.config.has_oauth_client())
+                                                    .await;
+                                                *self.auth_health.lock().await = health;
+                                            }
+                                            let keyring_unavailable = matches!(
+                                                err.auth_failure(),
+                                                Some(AuthFailure::KeyringUnavailable { .. })
+                                            );
+                                            if !keyring_unavailable {
+                                                let wait = self.next_backoff(backoff, &err);
+                                                backoff = Some(wait);
+                                                next_sync = if err
+                                                    .auth_failure()
+                                                    .is_some_and(|f| f.needs_user_authorization())
+                                                {
+                                                    None
+                                                } else {
+                                                    Some(Utc::now() + to_chrono(wait))
+                                                };
+                                                status.next_sync = next_sync;
+                                            }
+                                            Response::SyncFailed {
+                                                category: err.category().to_string(),
+                                                message: err.to_string(),
+                                            }
+                                        }
                                     }
                                 }
                                 Ok(Request::Status) => {
@@ -447,6 +493,8 @@ impl<P: CalendarProvider + ?Sized, N: Notifier + ?Sized> Daemon<P, N> {
                     status.last_error_category = None;
                     status.last_error_summary = None;
                 }
+                *self.auth_health.lock().await =
+                    self.tokens.health(self.config.has_oauth_client()).await;
                 tracing::info!(
                     calendars = outcome.calendars,
                     events = outcome.events,

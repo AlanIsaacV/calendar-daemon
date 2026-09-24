@@ -82,6 +82,14 @@ If the grant comes back covering fewer scopes than were asked for — you untick
 a box on the consent screen — `auth` refuses it and says which are missing,
 rather than storing a token that fails hours later.
 
+Running `auth` again is also how a running daemon recovers from
+`reauthorization required`. Once the new grant is stored, `auth` asks the daemon
+to sync with it and prints the result; the daemon resumes its schedule without a
+service restart. If that sync fails, `auth` prints why and suggests restarting
+the service with `systemctl --user restart calendar-daemon.service`; the usual
+reason a restart is needed is a daemon started from a build that predates this
+recovery.
+
 ## 5. Fetch, and check
 
 ```sh

@@ -123,7 +123,8 @@ struct TokenState {
     access_token: Option<String>,
     access_expires_at: Option<DateTime<Utc>>,
     /// Set once the provider has explicitly rejected the stored grant, so the
-    /// daemon stops re-asking on every sync until the user authorizes again.
+    /// daemon stops re-asking on every sync until the user authorizes again or
+    /// asks for a sync.
     grant_rejected: Option<AuthFailure>,
     last_failure: Option<AuthFailure>,
 }
@@ -193,6 +194,16 @@ impl<S: SecretStore, E: TokenEndpoint> TokenManager<S, E> {
         let mut state = self.state.lock().await;
         state.access_token = None;
         state.access_expires_at = None;
+    }
+
+    pub async fn clear_grant_rejection(&self) -> bool {
+        let mut state = self.state.lock().await;
+        if state.grant_rejected.take().is_none() {
+            return false;
+        }
+        state.access_token = None;
+        state.access_expires_at = None;
+        true
     }
 
     async fn renew_locked(
@@ -620,6 +631,64 @@ mod tests {
 
         assert!(manager.health(true).await.is_ready());
         assert_eq!(manager.access_token(now()).await.unwrap(), "access-9");
+    }
+
+    #[tokio::test]
+    async fn a_new_grant_is_used_after_a_rejection() {
+        let store = MemoryStore::new();
+        store.set("work", "refresh-1").unwrap();
+        let manager = manager(
+            store.clone(),
+            ScriptedEndpoint::new(vec![
+                Err(AuthFailure::GrantInvalid {
+                    code: "invalid_grant".into(),
+                    subtype: None,
+                }),
+                Ok(token("access-2", None, 3600)),
+            ]),
+        );
+        manager.access_token(now()).await.unwrap_err();
+
+        store.set("work", "refresh-2").unwrap();
+        manager.clear_grant_rejection().await;
+
+        assert_eq!(manager.access_token(now()).await.unwrap(), "access-2");
+        assert_eq!(manager.endpoint.calls(), vec!["refresh-1", "refresh-2"]);
+    }
+
+    #[tokio::test]
+    async fn a_stale_token_does_not_loop() {
+        let store = MemoryStore::new();
+        store.set("work", "refresh-1").unwrap();
+        let manager = manager(
+            store,
+            ScriptedEndpoint::new(vec![
+                Err(AuthFailure::GrantInvalid {
+                    code: "invalid_grant".into(),
+                    subtype: None,
+                }),
+                Err(AuthFailure::GrantInvalid {
+                    code: "invalid_grant".into(),
+                    subtype: None,
+                }),
+            ]),
+        );
+        manager.access_token(now()).await.unwrap_err();
+
+        manager.clear_grant_rejection().await;
+        assert!(matches!(
+            manager.access_token(now()).await.unwrap_err(),
+            AuthFailure::GrantInvalid { .. }
+        ));
+        assert_eq!(manager.endpoint.calls().len(), 2);
+
+        manager.access_token(now()).await.unwrap_err();
+        manager.access_token(now()).await.unwrap_err();
+        assert_eq!(
+            manager.endpoint.calls(),
+            vec!["refresh-1", "refresh-1"],
+            "kept retrying a rejected grant after recovery"
+        );
     }
 
     #[tokio::test]

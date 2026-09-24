@@ -59,7 +59,7 @@ Classify failures by status and parsed OAuth code/subtype. Network errors, 429 a
 
 The reviewed remote MCP uses Google identity scopes and issues its own client-facing credentials. It is a conceptual reference for PKCE, offline access, refresh and token-rotation handling, not a runtime dependency or a source of reusable Calendar grants. Its authorization server, public callback, identity allowlist and sealed client-credential protocol do not belong in this local program. No Go code or cryptographic format is copied.
 
-Google can expire or revoke authorization. Identity-only OAuth applications have a documented exception to the usual External/Testing seven-day refresh-token limit; Calendar permissions do not meet that identity-only exception. The MCP's observed session longevity therefore does not establish Calendar token lifetime. The daemon should request explicit reauthorization only when necessary and never repeatedly open a browser in the background.
+Google can expire or revoke authorization. Identity-only OAuth applications have a documented exception to the usual External/Testing seven-day refresh-token limit; Calendar permissions do not meet that identity-only exception. The MCP's observed session longevity therefore does not establish Calendar token lifetime. The daemon should request explicit reauthorization only when necessary and never repeatedly open a browser in the background. A confirmed rejection pauses periodic sync in the running daemon, which does not re-read the keyring on a timer, since a read can raise an unlock prompt. An explicit `auth` or `sync` clears the in-memory rejection and retries once with whatever the keyring then holds, so a new grant resumes the running daemon without a restart.
 
 ## Resource model
 

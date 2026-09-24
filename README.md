@@ -112,7 +112,7 @@ and the one that needs you:
 | `degraded (throttled)` | HTTP 429 or 5xx | backed off; credentials untouched |
 | `keyring unavailable` | locked or no secret service | the daemon keeps running and recovers when you unlock — **no new consent** |
 | `not authorized` | nothing stored yet | run `calendar-daemon auth` |
-| `reauthorization required` | Google rejected the grant | run `calendar-daemon auth` |
+| `reauthorization required` | Google rejected the grant | sync pauses; run `calendar-daemon auth`, which resumes a running daemon — **no restart** |
 | `client misconfigured` | bad client id or secret | fix the config; consent will not help |
 
 A failed sync never erases the last good calendar, and `status` reports how old
@@ -128,7 +128,7 @@ not to promise it will not happen.
 ## Development
 
 ```sh
-cargo test              # 187 tests: no network, no keyring, no graphical session
+cargo test              # 189 tests: no network, no keyring, no graphical session
 cargo clippy --all-targets
 cargo fmt --check
 ```

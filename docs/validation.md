@@ -10,7 +10,7 @@ list has been run yet.
 ## Part 1 — Checks that run anywhere
 
 ```sh
-cargo test                    # 187 tests
+cargo test                    # 189 tests
 cargo clippy --all-targets    # no warnings
 cargo fmt --check
 ```
@@ -35,6 +35,7 @@ cargo fmt --check
 | A transient failure keeps the stored refresh token | `src/auth/` |
 | Throttling (429) never looks like a dead grant | `src/auth/error.rs` |
 | Only `invalid_grant` invalidates the stored token | `src/auth/error.rs` |
+| A new grant is used after a rejection; a stale token does not loop | `src/auth/` |
 | A locked keyring is never mistaken for a revoked authorization | `src/auth/`, `src/auth/secrets.rs` |
 | A bad client id does not send the user to a browser | `src/auth/error.rs` |
 | Provider error descriptions never reach a log line | `src/auth/error.rs` |
@@ -105,7 +106,7 @@ second instance, and removed its socket on exit.
 
 Not reachable without a working provider, and therefore **not yet verified**:
 the coalescing of a repeated `sync`, which only applies after a cycle succeeds.
-It is checked in Part 2, item 17.
+It is checked in Part 2, item 18.
 
 ---
 
@@ -216,12 +217,24 @@ require a real Google account and a browser sign-in. None of them has been run.
     `status` says `keyring unavailable` and **not** `reauthorization required`.
     Unlock, sync again, and confirm it works with no browser.
 
-16. **Offline behaviour.** Disable networking, `calendar-daemon sync`, and
+16. **A rejected grant recovers without a restart.** With the daemon running
+    and `sync.periodic = true` (the default), revoke the app's access at
+    <https://myaccount.google.com/permissions>, then `calendar-daemon sync` and
+    confirm it fails and `status` says `reauthorization required`, with its
+    `next sync` line saying sync is paused until reauthorization. Run
+    `calendar-daemon auth` and, without restarting the service, confirm `auth`
+    reports that the running daemon picked up the new authorization, and
+    `status` shows a `last sync` from moments ago and a scheduled `next sync`.
+    With periodic sync off, a correct recovery shows `periodic sync is off`
+    there instead. This checks the recovery only; it says nothing about why
+    Google rejects a grant nobody revoked.
+
+17. **Offline behaviour.** Disable networking, `calendar-daemon sync`, and
     confirm: the command reports a transient failure, the previous calendar is
     still in the export, `status` reports the data age, and pending reminders
     still fire.
 
-17. **Repeated `sync` coalesces.** With the daemon running and authorized, run
+18. **Repeated `sync` coalesces.** With the daemon running and authorized, run
     `calendar-daemon sync; calendar-daemon sync` back to back. The second should
     return immediately without a second round trip to Google. Confirm in the
     journal that only one sync cycle is logged.
