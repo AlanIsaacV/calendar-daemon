@@ -23,3 +23,6 @@
 # Output of `cargo run --example sample_export` and the libical validator
 /sample/
 /validate-ics
+
+# Output of `tools/noctalia-setup.sh --report`
+/noctalia-setup-report.txt

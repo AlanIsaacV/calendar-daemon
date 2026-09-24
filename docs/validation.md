@@ -140,6 +140,22 @@ require a real Google account and a browser sign-in. None of them has been run.
    Do this **before** authorizing anything. It separates "the daemon is wrong"
    from "the client is not reading this directory", and it costs a minute.
 
+   **Checked statically against Noctalia 5.1.0 on 2026-09-12**, which is not the
+   same as having seen it render: the shipped binary's vdir reader takes every
+   `.ics` file in a collection directory and every `VEVENT` inside each, counts
+   a directory as a collection when it holds at least one `.ics`, and reads
+   `displayname` and `color` — so the export's layout is one it can consume, and
+   the `.tmp` staging name is one it skips. What this does *not* establish is
+   anything about rendering: all-day handling, punctuation, colours and the
+   meeting link still need the list above.
+
+   **The setting that looks like a daemon fault.** Noctalia's calendar service
+   defaults to `calendar.enabled = false`. With an account configured but the
+   service off, the calendar shows dates and no events, logs nothing, and looks
+   exactly like an export the client cannot read. Confirm with `noctalia config
+   export`: no `[calendar]` section in the merged output means the service is
+   off. The block to paste is in [install.md](install.md).
+
 5. **Emptying a calendar clears the display.** With the sample account added,
    replace one `calendar.ics` with an empty calendar and confirm the client
    stops showing its events rather than keeping them:

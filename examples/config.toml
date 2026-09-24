@@ -78,7 +78,7 @@ max_sleep = "2m"
 enabled = true
 
 # Where the vdir tree is written. Defaults to <state dir>/calendars.
-# directory = "~/.local/share/calendar-daemon/calendars"
+# directory = "~/.local/state/calendar-daemon/calendars"
 
 # Write a `color` metadata file from each calendar's Google colour.
 write_color = true

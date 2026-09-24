@@ -134,6 +134,56 @@ needed after adding the account.
 2. Add a **Local (vdir)** calendar account pointing at that directory.
 3. Confirm the events appear and a meeting link opens.
 
+### Noctalia
+
+Noctalia's calendar service is **off by default** — its built-in defaults carry
+`calendar.enabled = false`, so an account on its own displays nothing and the
+calendar shows bare dates. Both halves are needed. In
+`~/.config/noctalia/config.toml`:
+
+```toml
+[calendar]
+enabled = true
+
+[calendar.account.calendar-daemon]
+type = "vdir"
+name = "Google (calendar-daemon)"
+path = "~/.local/state/calendar-daemon/calendars"
+calendars = []   # empty means every collection it discovers
+```
+
+`tools/noctalia-setup.sh` writes exactly that, as a drop-in beside your own
+config — Noctalia merges every `*.toml` in the directory, so nothing you already
+have is edited, and `rm` undoes it. It also reports what the daemon has on disk
+and what Noctalia's merged configuration became, which is what tells a working
+setup apart from a silent one:
+
+```sh
+tools/noctalia-setup.sh --dry-run   # report only
+tools/noctalia-setup.sh             # write the drop-in, validate, reload
+tools/noctalia-setup.sh --report    # and leave the report in the repository
+```
+
+`--report` is for the case where the account running the daemon and the account
+working on this repository are not the same one: it leaves the run's evidence at
+`noctalia-setup-report.txt`, which both can read, so the result can be checked
+instead of described.
+
+**The override that defeats all of this.** `~/.local/state/noctalia/settings.toml`
+is applied *after* the config directory and wins. If Noctalia's settings UI has
+ever written `calendar.enabled = false` there, the drop-in is overridden with no
+error in any log, and the calendar stays empty exactly as if the export were
+unreadable. `noctalia config export` shows the merged truth, and the script
+reads it back and names the offending file when they disagree.
+
+Nothing else is required: Noctalia watches the tree with inotify, so a sync
+appears without waiting for `calendar.refresh_minutes`. It reads every `.ics`
+file in a collection directory and every `VEVENT` inside each one, which is
+what the daemon's one-snapshot-per-calendar layout depends on, and it takes the
+`displayname` and `color` files the daemon writes. Snapshots are staged as
+`.calendar.ics.<pid>.tmp`, which the reader skips, so a half-written file is
+never displayed.
+
 **Try it with the sample first.** `cargo run --example sample_export --
 /tmp/calendar-daemon-sample` writes a tree with no Google account involved. Point
 the client at that, confirm it renders, then switch to the real path. It costs
